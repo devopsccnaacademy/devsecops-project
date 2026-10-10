@@ -2,7 +2,6 @@ pipeline {
     agent any
 
     environment {
-        // Set AWS region and Terraform variables
         AWS_REGION = 'ap-south-1'
         TF_VAR_instance_type = 't2.micro'
         TF_VAR_ami = 'ami-08e3b3155fc937a94'
@@ -11,35 +10,32 @@ pipeline {
     stages {
         stage('Checkout Code') {
             steps {
-                // Checkout the code from the repository
-                git branch: 'main', url: 'https://github.com/your-repo/devsecops-project.git'
+                // Use the SSH URL for the GitHub repository
+                git branch: 'main', 
+                    url: 'git@github.com:devopsccnaacademy/devsecops-project.git'
             }
         }
 
         stage('Initialize Terraform') {
             steps {
-                // Initialize Terraform
                 sh 'terraform init'
             }
         }
 
         stage('Validate Terraform') {
             steps {
-                // Validate the Terraform configuration
                 sh 'terraform validate'
             }
         }
 
         stage('Plan Terraform') {
             steps {
-                // Generate and display the Terraform execution plan
                 sh 'terraform plan -out=tfplan'
             }
         }
 
         stage('Apply Terraform') {
             steps {
-                // Apply the Terraform configuration
                 sh 'terraform apply -auto-approve tfplan'
             }
         }
@@ -47,15 +43,12 @@ pipeline {
 
     post {
         always {
-            // Clean up workspace after the build
             cleanWs()
         }
         success {
-            // Notify success
             echo 'Terraform deployment completed successfully!'
         }
         failure {
-            // Notify failure
             echo 'Terraform deployment failed!'
         }
     }
