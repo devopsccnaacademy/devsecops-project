@@ -1,18 +1,8 @@
-# Terraform configuration for AWS
 provider "aws" {
-  region = "ap-south-1" # AWS region
+  region = "ap-south-1"
 }
 
-# Define variables
-variable "instance_type" {
-  default = "t2.micro"
-}
-
-variable "ami" {
-  default = "ami-08e3b3155fc937a94" # Amazon Linux 2 AMI for ap-south-1
-}
-
-# Security group for EC2 and Load Balancer
+# Security group for EC2 and ALB
 resource "aws_security_group" "web_sg" {
   name        = "web-sg"
   description = "Allow HTTP and SSH traffic"
@@ -42,8 +32,8 @@ resource "aws_security_group" "web_sg" {
 # Launch EC2 instances
 resource "aws_instance" "web_server" {
   count         = 2
-  ami           = var.ami
-  instance_type = var.instance_type
+  ami           = "ami-08e3b3155fc937a94"
+  instance_type = "t2.micro"
   security_groups = [aws_security_group.web_sg.name]
 
   user_data = <<-EOF
@@ -60,38 +50,71 @@ resource "aws_instance" "web_server" {
   }
 }
 
-# Create Elastic Load Balancer
-resource "aws_elb" "web_elb" {
-  name               = "web-elb"
-  availability_zones = data.aws_availability_zones.available.names
-  security_groups    = [aws_security_group.web_sg.id]
-
-  listener {
-    instance_port     = 80
-    instance_protocol = "HTTP"
-    lb_port           = 80
-    lb_protocol       = "HTTP"
-  }
-
+# Create Target Group
+resource "aws_lb_target_group" "web_tg" {
+  name        = "web-target-group"
+  port        = 80
+  protocol    = "HTTP"
+  vpc_id      = data.aws_vpc.default.id
+  target_type = "instance"
   health_check {
-    target              = "HTTP:80/"
+    path                = "/"
     interval            = 30
     timeout             = 5
     healthy_threshold   = 2
     unhealthy_threshold = 2
   }
+}
 
-  instances = aws_instance.web_server.*.id
+# Attach EC2 instances to Target Group
+resource "aws_lb_target_group_attachment" "web_tg_attachment" {
+  count            = 2
+  target_group_arn = aws_lb_target_group.web_tg.arn
+  target_id        = aws_instance.web_server[count.index].id
+  port             = 80
+}
+
+# Create ALB
+resource "aws_lb" "web_alb" {
+  name               = "web-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.web_sg.id]
+  subnets            = data.aws_subnets.default.ids
+
+  enable_deletion_protection = false
+  idle_timeout               = 60
 
   tags = {
-    Name = "web-elb"
+    Name = "web-alb"
   }
 }
 
-# Data source for availability zones
-data "aws_availability_zones" "available" {}
+# Create Listener for ALB
+resource "aws_lb_listener" "web_listener" {
+  load_balancer_arn = aws_lb.web_alb.arn
+  port              = 80
+  protocol          = "HTTP"
 
-# Output the Load Balancer DNS
-output "elb_dns_name" {
-  value = aws_elb.web_elb.dns_name
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.web_tg.arn
+  }
+}
+
+# Data sources for VPC and Subnets
+data "aws_vpc" "default" {
+  default = true
+}
+
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
+# Output the ALB DNS Name
+output "alb_dns_name" {
+  value = aws_lb.web_alb.dns_name
 }
